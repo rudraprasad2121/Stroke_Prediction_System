@@ -3,5 +3,6 @@ pandas
 numpy
 scikit-learn
 catboost
-shap
 matplotlib
+shap
+imbalanced-learn
