@@ -1,88 +1,115 @@
-import streamlit as st
 import numpy as np
 import pandas as pd
-import time
+import joblib
+from flask import Flask, render_template, request
 
-st.set_page_config(page_title="Stroke Prediction", layout="wide")
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.ensemble import RandomForestClassifier
 
-# ---------- CUSTOM CSS ----------
-st.markdown("""
-<style>
-.big-title {font-size:32px; font-weight:bold; color:#4F46E5;}
-.card {
-    padding:20px;
-    border-radius:10px;
-    background:#f8fafc;
-    box-shadow:0px 2px 10px rgba(0,0,0,0.1);
-}
-</style>
-""", unsafe_allow_html=True)
+# ---------------- APP ----------------
+app = Flask(__name__)
+app.secret_key = "welcome"
 
-# ---------- TITLE ----------
-st.markdown('<p class="big-title">🧠 Stroke Prediction System</p>', unsafe_allow_html=True)
+# ---------------- LOAD & TRAIN ONCE ----------------
+dataset = pd.read_csv("Dataset/healthcare-dataset-stroke-data.csv")
+dataset.fillna(0, inplace=True)
 
-# ---------- SIDEBAR ----------
-menu = st.sidebar.radio("Navigation", ["Prediction", "About"])
+# Encoders
+encoders = {}
+for col in ['gender','ever_married','work_type','Residence_type','smoking_status']:
+    le = LabelEncoder()
+    dataset[col] = le.fit_transform(dataset[col].astype(str))
+    encoders[col] = le
 
-# ---------- PREDICTION PAGE ----------
-if menu == "Prediction":
+# Split data
+Y = dataset['stroke']
+X = dataset.drop(['id','stroke'], axis=1)
 
-    st.subheader("Enter Patient Details")
+# Scaling
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
 
-    col1, col2 = st.columns(2)
+# Feature Selection
+selector = SelectKBest(score_func=chi2, k=9)
+X_selected = selector.fit_transform(X_scaled, Y)
 
-    with col1:
-        gender = st.selectbox("Gender", ["Male", "Female"])
-        age = st.slider("Age", 1, 100, 25)
-        hypertension = st.selectbox("Hypertension", [0,1])
-        heart = st.selectbox("Heart Disease", [0,1])
-        married = st.selectbox("Ever Married", ["Yes","No"])
+# Train model
+X_train, X_test, y_train, y_test = train_test_split(X_selected, Y, test_size=0.2, random_state=42)
 
-    with col2:
-        work = st.selectbox("Work Type", ["Private","Govt","Self-employed"])
-        residence = st.selectbox("Residence", ["Urban","Rural"])
-        glucose = st.slider("Glucose Level", 50, 300, 100)
-        bmi = st.slider("BMI", 10.0, 50.0, 25.0)
-        smoke = st.selectbox("Smoking", ["never","smokes","formerly smoked"])
+model = RandomForestClassifier(n_estimators=200)
+model.fit(X_train, y_train)
 
-    if st.button("🔍 Predict"):
+print("Model Accuracy:", model.score(X_test, y_test))
 
-        # Fake prediction (replace with your model)
-        prob = np.random.rand()
+# ---------------- ROUTES ----------------
 
-        risk = "Low" if prob < 0.3 else "Medium" if prob < 0.7 else "High"
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-        # ---------- LOADING ----------
-        with st.spinner("Analyzing data..."):
-            time.sleep(1.5)
 
-        st.success("Prediction Completed")
+@app.route('/predict', methods=['POST'])
+def predict():
 
-        # ---------- METRICS ----------
-        col1, col2, col3 = st.columns(3)
+    try:
+        # -------- GET INPUT --------
+        gender = request.form['gender']
+        age = float(request.form['age'])
+        hypertension = int(request.form['hypertension'])
+        heart = int(request.form['heart'])
+        married = request.form['married']
+        work = request.form['work']
+        residence = request.form['residence']
+        glucose = float(request.form['glucose'])
+        bmi = float(request.form['bmi'])
+        smoke = request.form['smoke']
 
-        col1.metric("Prediction", "Stroke" if prob>0.5 else "Normal")
-        col2.metric("Probability", f"{round(prob*100,2)}%")
-        col3.metric("Risk Level", risk)
+        # -------- ENCODE --------
+        gender = encoders['gender'].transform([gender])[0]
+        married = encoders['ever_married'].transform([married])[0]
+        work = encoders['work_type'].transform([work])[0]
+        residence = encoders['Residence_type'].transform([residence])[0]
+        smoke = encoders['smoking_status'].transform([smoke])[0]
 
-        # ---------- PROGRESS BAR ----------
-        st.subheader("Risk Level Indicator")
-        st.progress(int(prob * 100))
+        # -------- CREATE INPUT --------
+        input_data = np.array([[gender, age, hypertension, heart,
+                                married, work, residence,
+                                glucose, bmi, smoke]])
 
-        # ---------- CHART ----------
-        st.subheader("Result Visualization")
+        # -------- SCALE + SELECT --------
+        input_scaled = scaler.transform(input_data)
+        input_selected = selector.transform(input_scaled)
 
-        chart_data = pd.DataFrame({
-            "Category": ["Stroke Risk", "Normal"],
-            "Value": [prob, 1-prob]
-        })
+        # -------- PREDICT --------
+        prob = model.predict_proba(input_selected)[0][1]
 
-        st.bar_chart(chart_data.set_index("Category"))
+        # -------- SMART RISK LOGIC --------
+        if prob < 0.3:
+            risk = "Low"
+        elif prob < 0.7:
+            risk = "Medium"
+        else:
+            risk = "High"
 
-# ---------- ABOUT PAGE ----------
-elif menu == "About":
-    st.subheader("About Project")
-    st.write("""
-    This system predicts stroke risk using Machine Learning.
-    It includes Explainable AI (SHAP) and interactive dashboards.
-    """)
+        result = "Stroke" if prob > 0.5 else "Normal"
+
+        # -------- SAFETY RULE (IMPORTANT) --------
+        if glucose < 140 and bmi < 30 and hypertension == 0:
+            result = "Normal"
+            risk = "Low"
+            prob = min(prob, 0.3)
+
+        return render_template("result.html",
+                               result=result,
+                               prob=round(prob*100,2),
+                               risk=risk)
+
+    except Exception as e:
+        return str(e)
+
+
+# ---------------- RUN ----------------
+if __name__ == '__main__':
+    app.run(debug=True)
