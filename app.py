@@ -13,7 +13,7 @@ st.set_page_config(page_title="Stroke Prediction", layout="wide")
 st.title("🧠 Stroke Prediction System")
 
 # ---------------- LOAD DATA ----------------
-dataset = pd.read_csv("healthcare-dataset-stroke-data.csv")
+dataset = pd.read_csv("Dataset/healthcare-dataset-stroke-data.csv")
 dataset.fillna(0, inplace=True)
 
 # ---------------- ENCODING ----------------
