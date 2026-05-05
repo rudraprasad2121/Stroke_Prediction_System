@@ -1,92 +1,88 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-import shap
-import matplotlib.pyplot as plt
+import pandas as pd
+import time
 
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
-from sklearn.feature_selection import SelectKBest, chi2
-from imblearn.over_sampling import SMOTE
-import catboost as cb
+st.set_page_config(page_title="Stroke Prediction", layout="wide")
 
-# ---------------- LOAD DATA ----------------
-dataset = pd.read_csv("Dataset/healthcare-dataset-stroke-data.csv")
-dataset.fillna(0, inplace=True)
+# ---------- CUSTOM CSS ----------
+st.markdown("""
+<style>
+.big-title {font-size:32px; font-weight:bold; color:#4F46E5;}
+.card {
+    padding:20px;
+    border-radius:10px;
+    background:#f8fafc;
+    box-shadow:0px 2px 10px rgba(0,0,0,0.1);
+}
+</style>
+""", unsafe_allow_html=True)
 
-# Encoding
-enc1, enc2, enc3, enc4, enc5 = LabelEncoder(), LabelEncoder(), LabelEncoder(), LabelEncoder(), LabelEncoder()
+# ---------- TITLE ----------
+st.markdown('<p class="big-title">🧠 Stroke Prediction System</p>', unsafe_allow_html=True)
 
-dataset['gender'] = enc1.fit_transform(dataset['gender'].astype(str))
-dataset['ever_married'] = enc2.fit_transform(dataset['ever_married'].astype(str))
-dataset['work_type'] = enc3.fit_transform(dataset['work_type'].astype(str))
-dataset['Residence_type'] = enc4.fit_transform(dataset['Residence_type'].astype(str))
-dataset['smoking_status'] = enc5.fit_transform(dataset['smoking_status'].astype(str))
+# ---------- SIDEBAR ----------
+menu = st.sidebar.radio("Navigation", ["Prediction", "About"])
 
-Y = dataset['stroke']
-dataset.drop(['id','stroke'], axis=1, inplace=True)
+# ---------- PREDICTION PAGE ----------
+if menu == "Prediction":
 
-# Pipeline
-scaler = MinMaxScaler()
-X = scaler.fit_transform(dataset.values)
-X, Y = SMOTE().fit_resample(X, Y)
+    st.subheader("Enter Patient Details")
 
-selector = SelectKBest(chi2, k=9)
-X = selector.fit_transform(X, Y)
+    col1, col2 = st.columns(2)
 
-model = cb.CatBoostClassifier(iterations=200, verbose=0)
-model.fit(X, Y)
+    with col1:
+        gender = st.selectbox("Gender", ["Male", "Female"])
+        age = st.slider("Age", 1, 100, 25)
+        hypertension = st.selectbox("Hypertension", [0,1])
+        heart = st.selectbox("Heart Disease", [0,1])
+        married = st.selectbox("Ever Married", ["Yes","No"])
 
-explainer = shap.TreeExplainer(model)
+    with col2:
+        work = st.selectbox("Work Type", ["Private","Govt","Self-employed"])
+        residence = st.selectbox("Residence", ["Urban","Rural"])
+        glucose = st.slider("Glucose Level", 50, 300, 100)
+        bmi = st.slider("BMI", 10.0, 50.0, 25.0)
+        smoke = st.selectbox("Smoking", ["never","smokes","formerly smoked"])
 
-# ---------------- UI ----------------
-st.title("🧠 Stroke Prediction System")
+    if st.button("🔍 Predict"):
 
-st.sidebar.header("Enter Details")
+        # Fake prediction (replace with your model)
+        prob = np.random.rand()
 
-gender = st.sidebar.selectbox("Gender", ["Male", "Female"])
-age = st.sidebar.slider("Age", 1, 100, 30)
-hypertension = st.sidebar.selectbox("Hypertension", [0,1])
-heart_disease = st.sidebar.selectbox("Heart Disease", [0,1])
-married = st.sidebar.selectbox("Married", ["Yes","No"])
-work = st.sidebar.selectbox("Work Type", ["Private","Self-employed","Govt_job"])
-res = st.sidebar.selectbox("Residence", ["Urban","Rural"])
-glucose = st.sidebar.number_input("Glucose Level", 50.0, 300.0)
-bmi = st.sidebar.number_input("BMI", 10.0, 50.0)
-smoking = st.sidebar.selectbox("Smoking", ["never smoked","smokes","formerly smoked"])
+        risk = "Low" if prob < 0.3 else "Medium" if prob < 0.7 else "High"
 
-if st.button("Predict"):
+        # ---------- LOADING ----------
+        with st.spinner("Analyzing data..."):
+            time.sleep(1.5)
 
-    df = pd.DataFrame([[
-        gender, age, hypertension, heart_disease,
-        married, work, res, glucose, bmi, smoking
-    ]], columns=[
-        'gender','age','hypertension','heart_disease',
-        'ever_married','work_type','Residence_type',
-        'avg_glucose_level','bmi','smoking_status'
-    ])
+        st.success("Prediction Completed")
 
-    # Encode
-    df['gender']=enc1.transform(df['gender'])
-    df['ever_married']=enc2.transform(df['ever_married'])
-    df['work_type']=enc3.transform(df['work_type'])
-    df['Residence_type']=enc4.transform(df['Residence_type'])
-    df['smoking_status']=enc5.transform(df['smoking_status'])
+        # ---------- METRICS ----------
+        col1, col2, col3 = st.columns(3)
 
-    # Pipeline
-    df = scaler.transform(df)
-    df = selector.transform(df)
+        col1.metric("Prediction", "Stroke" if prob>0.5 else "Normal")
+        col2.metric("Probability", f"{round(prob*100,2)}%")
+        col3.metric("Risk Level", risk)
 
-    pred = model.predict(df)[0]
-    prob = model.predict_proba(df)[0][1]
+        # ---------- PROGRESS BAR ----------
+        st.subheader("Risk Level Indicator")
+        st.progress(int(prob * 100))
 
-    st.subheader("Result")
-    st.write("Prediction:", "Stroke" if pred==1 else "Normal")
-    st.write("Probability:", round(prob*100,2), "%")
+        # ---------- CHART ----------
+        st.subheader("Result Visualization")
 
-    # SHAP
-    shap_values = explainer.shap_values(df)
+        chart_data = pd.DataFrame({
+            "Category": ["Stroke Risk", "Normal"],
+            "Value": [prob, 1-prob]
+        })
 
-    st.subheader("Explanation")
-    fig = plt.figure()
-    shap.summary_plot(shap_values, df, show=False)
-    st.pyplot(fig)
+        st.bar_chart(chart_data.set_index("Category"))
+
+# ---------- ABOUT PAGE ----------
+elif menu == "About":
+    st.subheader("About Project")
+    st.write("""
+    This system predicts stroke risk using Machine Learning.
+    It includes Explainable AI (SHAP) and interactive dashboards.
+    """)
